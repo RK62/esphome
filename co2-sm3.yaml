@@ -1,10 +1,11 @@
 # 29.11.2025 R.Krüger --- Erstellung
+# https://github.com/RK62/esphome/blob/main/co2-sm3.yaml
 
 substitutions:
   device_name: "co2-sm3"
   friendly_name: "CO2-SM3"
   project_name: "Ralf Krüger.CO2-Sensor"
-  project_version: "1.03"
+  project_version: "1.30"
 
 esphome:
   name: ${device_name}
@@ -17,7 +18,8 @@ esphome:
     - priority: 800
       then:
         - delay: 1s
-        - component.update: DISPLAY # Display updaten      
+        - display.page.show: PAGE01
+        - component.update: DISPLAY
         - delay: 10s
         - component.update: CO2_SENSOR # CO2-Wert updaten
 
@@ -81,6 +83,10 @@ i2c:
 # ------------------------------------------------------------
 font:
 # ------------------------------------------------------------
+  - id: FONT_N
+    file: "gfonts://Inter"
+    size: 22
+
   - id: FONT_B
     file: "gfonts://Inter"
     size: 29
@@ -93,15 +99,31 @@ display:
     model: "SSD1306 72x40"
     rotation: 0
     update_interval: never
-    lambda: |-
-      if ( isnan(id(CO2_WERT).raw_state) ) { 
-        it.print(35, 16, id(FONT_B), TextAlign::CENTER, "v${project_version}" );
-        it.rectangle(0, 35, 71, 4);
-      } else {     
-        it.printf(35, 16, id(FONT_B), TextAlign::CENTER, "%.0f", id(CO2_WERT).state);  
-        it.rectangle(0, 35, 71, 4);
-        it.filled_rectangle(0, 36, id(CO2_WERT).state * 0.05, 4);
-      }
+    pages:
+      - id: PAGE01
+        lambda: |-
+          it.print(0,  0,  id(FONT_N), "Hi" );
+          it.print(26, 18, id(FONT_N), "Bro!" );
+      - id: PAGE02
+        lambda: |-
+          it.printf(35, 16, id(FONT_B), TextAlign::CENTER, "%.0f", id(CO2_WERT).state);  
+          it.rectangle(0, 35, 71, 4);
+          it.filled_rectangle(0, 36, id(CO2_WERT).state * 0.05, 4);   
+      - id: PAGE03
+        lambda: |-
+          it.printf(35, 16, id(FONT_B), TextAlign::CENTER, "%.1f°", id(TEMPERATUR).state);
+      - id: PAGE04
+        lambda: |-
+          it.printf(35, 16, id(FONT_B), TextAlign::CENTER, "%.0f%%", id(FEUCHTIGKEIT).state);  
+
+# ------------------------------------------------------------
+interval:
+# ------------------------------------------------------------  
+  - interval: 5s
+    startup_delay: 15s
+    then:
+      - display.page.show_next: DISPLAY
+      - component.update: DISPLAY
 
 # ------------------------------------------------------------
 sensor:
@@ -121,6 +143,7 @@ sensor:
           - script.execute: SET_AMPEL
 
     temperature:
+      id: TEMPERATUR
       name: "Temperatur"
       accuracy_decimals: 1
       filters:
@@ -128,10 +151,11 @@ sensor:
         - round: 1
     
     humidity:
+      id: FEUCHTIGKEIT
       name: "Feuchtigkeit"
       accuracy_decimals: 0
       filters:
-        - offset: -3.0    # Datenkorrektur
+        - offset: -4.0    # Datenkorrektur
         - round: 1
 
 # ------------------------------------------------------------
@@ -175,7 +199,7 @@ script:
 # ------------------------------------------------------------
   - id: SET_AMPEL
     then:
-      - component.update: DISPLAY # Display updaten
+      # - component.update: DISPLAY # Display updaten
 
       - if:
           condition: 
@@ -208,4 +232,4 @@ script:
           then:
             - light.turn_on:  LED_RED
           else:
-            - light.turn_off: LED_RED
+            - light.turn_off: LED_RED      
