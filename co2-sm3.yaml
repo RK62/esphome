@@ -1,0 +1,211 @@
+# 29.11.2025 R.Krüger --- Erstellung
+
+substitutions:
+  device_name: "co2-sm3"
+  friendly_name: "CO2-SM3"
+  project_name: "Ralf Krüger.CO2-Sensor"
+  project_version: "1.03"
+
+esphome:
+  name: ${device_name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}   
+    version: ${project_version}
+  on_boot: 
+    - priority: 800
+      then:
+        - delay: 1s
+        - component.update: DISPLAY # Display updaten      
+        - delay: 10s
+        - component.update: CO2_SENSOR # CO2-Wert updaten
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "FTYv/RwusBNZZSSO7R/13/xB8Xksa+ytdQauXiDimeM="
+
+  actions:
+
+    - action: calibrate_co2_value
+      variables:
+        co2_ppm: int
+      then:
+        - scd4x.perform_forced_calibration:
+            id: CO2_SENSOR
+            value: !lambda 'return co2_ppm;'
+
+    - action: factory_reset
+      then:
+        - scd4x.factory_reset: CO2_SENSOR
+
+    - action: set_ambient_pressure
+      variables:
+        pressure_mbar: int
+      then:
+        - lambda: "id(CO2_SENSOR)->set_ambient_pressure_compensation(pressure_mbar);"      
+
+ota:
+  - platform: esphome
+    password: "5c3b42f4f6c0e7eff99fcc62284069c9"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2
+
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${friendly_name} Hotspot"
+    password: "0123456789"
+
+captive_portal:
+
+# ==============================================================================
+
+# ------------------------------------------------------------
+i2c:
+# ------------------------------------------------------------  
+  sda: GPIO5
+  scl: GPIO6
+
+# ------------------------------------------------------------
+font:
+# ------------------------------------------------------------
+  - id: FONT_B
+    file: "gfonts://Inter"
+    size: 29
+
+# ------------------------------------------------------------
+display:
+# ------------------------------------------------------------  
+  - platform: ssd1306_i2c
+    id: DISPLAY
+    model: "SSD1306 72x40"
+    rotation: 0
+    update_interval: never
+    lambda: |-
+      if ( isnan(id(CO2_WERT).raw_state) ) { 
+        it.print(35, 16, id(FONT_B), TextAlign::CENTER, "v${project_version}" );
+        it.rectangle(0, 35, 71, 4);
+      } else {     
+        it.printf(35, 16, id(FONT_B), TextAlign::CENTER, "%.0f", id(CO2_WERT).state);  
+        it.rectangle(0, 35, 71, 4);
+        it.filled_rectangle(0, 36, id(CO2_WERT).state * 0.05, 4);
+      }
+
+# ------------------------------------------------------------
+sensor:
+# ------------------------------------------------------------  
+  - platform: scd4x
+    id: CO2_SENSOR
+    update_interval: 60s
+
+    co2:
+      id: CO2_WERT
+      name: "CO2"
+      accuracy_decimals: 0
+      filters:
+        - round: 1
+      on_value:
+        then:
+          - script.execute: SET_AMPEL
+
+    temperature:
+      name: "Temperatur"
+      accuracy_decimals: 1
+      filters:
+        - offset: -1.4   # Datenkorrektur
+        - round: 1
+    
+    humidity:
+      name: "Feuchtigkeit"
+      accuracy_decimals: 0
+      filters:
+        - offset: -3.0    # Datenkorrektur
+        - round: 1
+
+# ------------------------------------------------------------
+light:
+# ------------------------------------------------------------
+  - platform: binary
+    id: LED_RED
+    name: "LED Rot"
+    disabled_by_default: True
+    output: IO_RED
+  
+  - platform: binary
+    id: LED_YELLOW
+    name: "LED Gelb"
+    disabled_by_default: True
+    output: IO_YELLOW
+  
+  - platform: binary
+    id: LED_GREEN
+    name: "LED Grün"
+    disabled_by_default: True
+    output: IO_GREEN
+  
+# ------------------------------------------------------------
+output:
+# ------------------------------------------------------------
+  - id: IO_RED
+    platform: gpio
+    pin: GPIO21
+
+  - id: IO_YELLOW
+    platform: gpio
+    pin: GPIO20
+
+  - id: IO_GREEN
+    platform: gpio
+    pin: GPIO10
+        
+# ------------------------------------------------------------
+script:
+# ------------------------------------------------------------
+  - id: SET_AMPEL
+    then:
+      - component.update: DISPLAY # Display updaten
+
+      - if:
+          condition: 
+            lambda: return isnan(id(CO2_WERT).raw_state);
+          then:
+            - light.turn_off: LED_GREEN
+            - light.turn_off: LED_YELLOW
+            - light.turn_off: LED_RED
+
+      - if:
+          condition:
+            lambda: return id(CO2_WERT).state < 800;
+          then:
+            - light.turn_on:  LED_GREEN
+          else:
+            - light.turn_off: LED_GREEN
+
+      - if:
+          condition:
+            lambda: return id(CO2_WERT).state >= 700
+                        && id(CO2_WERT).state < 1300;
+          then:
+            - light.turn_on:  LED_YELLOW
+          else:
+            - light.turn_off: LED_YELLOW
+
+      - if:
+          condition:
+            lambda: return id(CO2_WERT).state > 1200;
+          then:
+            - light.turn_on:  LED_RED
+          else:
+            - light.turn_off: LED_RED
